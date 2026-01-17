@@ -4,34 +4,34 @@ require("dotenv").config();
 
 const app = express();
 
-// CORS Configuration
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://vc23028-viki.github.io',
+  'https://vc23028-viki.github.io/SFEMS_Frontend'
+];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://vc23028-viki.github.io/SFEMS_Frontend/'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like Postman, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(express.json());  // THIS IS CRUCIAL
+app.options('*', cors());  // enable pre-flight for all routes
 
-// Routes
+app.use(express.json());
+
+// Your routes here
 app.use("/api/auth", require("./routes/auth.routes"));
-app.use("/api/equipment", require("./routes/equipment.routes"));
-app.use("/api/production", require("./routes/production_logs.routes"));
-app.use("/api/tasks", require("./routes/maintenance_task.routes"));  // FIXED: changed from /maintenance to /tasks
-app.use("/api/schedules", require("./routes/maintenance_schedules.routes"));
-app.use("/api/users", require("./routes/users.routes"));  // ADD THIS - new users route
-
-// Test route
-app.get("/", (req, res) => {
-  res.send("Smart Factory API is running");
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+// other routes...
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
