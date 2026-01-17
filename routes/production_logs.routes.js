@@ -1,16 +1,19 @@
+// routes/production_logs.routes.js
+
 const express = require('express');
 const router = express.Router();
 const productionController = require('../controllers/production_logs.controller');
 
-// Test route
-router.get('/test', (req, res) => {
-  res.json({ message: 'Production route working' });
-});
-
 // GET all production logs
 router.get('/', productionController.getAllProductionLogs);
 
-// PUT update production log
+// POST - create new production log
+router.post('/', productionController.createProductionLog);
+
+// PUT - update production log by ID
 router.put('/:id', productionController.updateProductionLog);
+
+// DELETE - delete production log by ID
+router.delete('/:id', productionController.deleteProductionLog);
 
 module.exports = router;
