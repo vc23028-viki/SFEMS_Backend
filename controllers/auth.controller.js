@@ -5,6 +5,52 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
 /* =========================
+   CHECK USERNAME AVAILABILITY
+========================= */
+exports.checkUsername = async (req, res) => {
+  const { username } = req.body;
+
+  if (!username) {
+    return res.status(400).json({ message: "Username is required" });
+  }
+
+  try {
+    const result = await db.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username.toLowerCase().trim()]
+    );
+
+    res.json({ exists: result.rows.length > 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Database error" });
+  }
+};
+
+/* =========================
+   CHECK EMAIL AVAILABILITY
+========================= */
+exports.checkEmail = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  try {
+    const result = await db.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email.toLowerCase().trim()]
+    );
+
+    res.json({ exists: result.rows.length > 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Database error" });
+  }
+};
+
+/* =========================
    REGISTER USER
 ========================= */
 exports.register = async (req, res) => {
@@ -25,13 +71,24 @@ exports.register = async (req, res) => {
   }
 
   try {
-    const existing = await db.query(
+    // Check if email already exists
+    const emailCheck = await db.query(
       "SELECT id FROM users WHERE email = $1",
-      [email]
+      [email.toLowerCase()]
     );
 
-    if (existing.rows.length > 0) {
+    if (emailCheck.rows.length > 0) {
       return res.status(409).json({ message: "Email already registered" });
+    }
+
+    // Check if username already exists
+    const usernameCheck = await db.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username.toLowerCase().trim()]
+    );
+
+    if (usernameCheck.rows.length > 0) {
+      return res.status(409).json({ message: "Username already taken" });
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
@@ -40,7 +97,7 @@ exports.register = async (req, res) => {
       `INSERT INTO users (username, email, password, role)
        VALUES ($1, $2, $3, $4)
        RETURNING id, username, email, role`,
-      [username, email, hashedPassword, role]
+      [username.toLowerCase().trim(), email.toLowerCase(), hashedPassword, role]
     );
 
     res.status(201).json({
@@ -71,7 +128,7 @@ exports.login = async (req, res) => {
   try {
     const result = await db.query(
       "SELECT * FROM users WHERE email = $1",
-      [email]
+      [email.toLowerCase()]
     );
 
     if (result.rows.length === 0) {
