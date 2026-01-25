@@ -11,91 +11,148 @@ exports.getAllSchedules = async (req, res) => {
   
   try {
     const result = await db.query(sql);
-    res.status(200).json(result.rows);  // PostgreSQL returns rows in result.rows
+    res.status(200).json(result.rows);
   } catch (err) {
     console.error("Database error:", err);
-    return res.status(500).json({ error: "Database error", details: err });
+    return res.status(500).json({ error: "Database error", details: err.message });
   }
 };
 
 // GET single schedule by ID
 exports.getScheduleById = async (req, res) => {
   const { id } = req.params;
-  const sql = "SELECT * FROM maintenance_schedules WHERE id = $1";  // PostgreSQL query parameter
+  const sql = "SELECT * FROM maintenance_schedules WHERE id = $1";
   try {
     const result = await db.query(sql, [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Schedule not found" });
     }
-    res.status(200).json(result.rows[0]);  // PostgreSQL returns rows in result.rows
+    res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("Database error:", err);
-    return res.status(500).json({ error: "Database error", details: err });
+    return res.status(500).json({ error: "Database error", details: err.message });
   }
 };
 
 // POST - create new schedule
 exports.createSchedule = async (req, res) => {
   const { equipment_id, schedule_date, schedule_time, task_description, status } = req.body;
-  if (!equipment_id || !schedule_date || !task_description || !status) {
-    return res.status(400).json({ error: "Missing required fields" });
+  
+  if (!equipment_id || !schedule_date || !task_description) {
+    return res.status(400).json({ error: "Missing required fields: equipment_id, schedule_date, task_description" });
   }
 
   const sql = `
     INSERT INTO maintenance_schedules (equipment_id, schedule_date, schedule_time, task_description, status)
-    VALUES ($1, $2, $3, $4, $5) RETURNING id
+    VALUES ($1, $2, $3, $4, $5) RETURNING *
   `;
   try {
-    const result = await db.query(sql, [equipment_id, schedule_date, schedule_time || null, task_description, status]);
+    const result = await db.query(sql, [
+      equipment_id, 
+      schedule_date, 
+      schedule_time || null, 
+      task_description, 
+      status || 'Scheduled'
+    ]);
+    
     res.status(201).json({
       message: "Schedule created successfully",
-      scheduleId: result.rows[0].id // PostgreSQL returns the result in result.rows[0].id
+      schedule: result.rows[0]
     });
   } catch (err) {
-    console.error("Database error:", err);
-    return res.status(500).json({ error: "Database error", details: err });
+    console.error("Database error creating schedule:", err);
+    return res.status(500).json({ error: "Database error", details: err.message });
   }
 };
 
-// PUT - update schedule
+// PUT - update schedule (SIMPLIFIED - only updates what's provided)
 exports.updateSchedule = async (req, res) => {
   const { id } = req.params;
-  const { schedule_date, schedule_time, task_description, status } = req.body;
-  if (!schedule_date || !task_description || !status) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
+  const { equipment_id, schedule_date, schedule_time, task_description, status } = req.body;
 
-  const sql = `
-    UPDATE maintenance_schedules
-    SET schedule_date = $1, schedule_time = $2, task_description = $3, status = $4
-    WHERE id = $5
-  `;
   try {
-    const result = await db.query(sql, [schedule_date, schedule_time || null, task_description, status, id]);
+    console.log(`Updating schedule ID ${id} with:`, { equipment_id, schedule_date, schedule_time, task_description, status });
 
-    if (result.rowCount === 0) {
+    // Build dynamic SQL based on what fields are provided
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (equipment_id !== undefined) {
+      updates.push(`equipment_id = $${paramCount++}`);
+      values.push(equipment_id);
+    }
+    if (schedule_date !== undefined) {
+      updates.push(`schedule_date = $${paramCount++}`);
+      values.push(schedule_date);
+    }
+    if (schedule_time !== undefined) {
+      updates.push(`schedule_time = $${paramCount++}`);
+      values.push(schedule_time);
+    }
+    if (task_description !== undefined) {
+      updates.push(`task_description = $${paramCount++}`);
+      values.push(task_description);
+    }
+    if (status !== undefined) {
+      updates.push(`status = $${paramCount++}`);
+      values.push(status);
+    }
+
+    // If no fields to update, return error
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    // Note: updated_at column doesn't exist in this table, so we skip it
+
+    // Add ID to parameters
+    values.push(id);
+
+    const sql = `
+      UPDATE maintenance_schedules
+      SET ${updates.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `;
+
+    console.log("SQL Query:", sql);
+    console.log("Parameters:", values);
+
+    const result = await db.query(sql, values);
+
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Schedule not found" });
     }
 
-    res.status(200).json({ message: "Schedule updated successfully" });
+    res.status(200).json({ 
+      message: "Schedule updated successfully",
+      schedule: result.rows[0]
+    });
+
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Database error", details: err });
+    console.error("Database error updating schedule:", err);
+    return res.status(500).json({ error: "Database error", details: err.message });
   }
 };
 
 // DELETE - remove schedule
 exports.deleteSchedule = async (req, res) => {
   const { id } = req.params;
-  const sql = "DELETE FROM maintenance_schedules WHERE id = $1";
+  const sql = "DELETE FROM maintenance_schedules WHERE id = $1 RETURNING *";
   try {
     const result = await db.query(sql, [id]);
-    if (result.rowCount === 0) {
+    
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Schedule not found" });
     }
-    res.status(200).json({ message: "Schedule deleted successfully" });
+    
+    res.status(200).json({ 
+      message: "Schedule deleted successfully",
+      schedule: result.rows[0]
+    });
   } catch (err) {
     console.error("Database error:", err);
-    return res.status(500).json({ error: "Database error", details: err });
+    return res.status(500).json({ error: "Database error", details: err.message });
   }
 };
