@@ -1,3 +1,5 @@
+// backend/controllers/equipment.controller.js - FIXED UPDATE
+
 const db = require('../config/db');
 
 // GET all equipment
@@ -48,26 +50,29 @@ exports.createEquipment = async (req, res) => {
   }
 };
 
-// PUT - update equipment by ID
+// PUT - update equipment by ID (FIXED)
 exports.updateEquipment = async (req, res) => {
   const { id } = req.params;
   const { name, machine_type, status, last_maintenance, capacity } = req.body;
 
-  if (!name || !machine_type || !status || !capacity) {
-    return res.status(400).json({
-      error: 'name, machine_type, status, and capacity are required'
-    });
-  }
-
   try {
+    console.log('Update request for equipment ID:', id);
+    console.log('Received data:', { name, machine_type, status, last_maintenance, capacity });
+
+    // Validate required fields
+    if (!name || !machine_type || !status) {
+      return res.status(400).json({
+        error: 'name, machine_type, and status are required'
+      });
+    }
+
     const sql = `
       UPDATE equipment
       SET name = $1,
           machine_type = $2,
           status = $3,
           last_maintenance = $4,
-          capacity = $5,
-          updated_at = CURRENT_TIMESTAMP
+          capacity = $5
       WHERE id = $6
       RETURNING *
     `;
@@ -77,7 +82,7 @@ exports.updateEquipment = async (req, res) => {
       machine_type,
       status,
       last_maintenance || null,
-      capacity,
+      capacity || 0,
       id
     ]);
 
@@ -85,13 +90,15 @@ exports.updateEquipment = async (req, res) => {
       return res.status(404).json({ error: 'Equipment not found' });
     }
 
+    console.log('Equipment updated successfully:', result.rows[0]);
+    
     res.status(200).json({ 
       message: 'Equipment updated successfully',
       equipment: result.rows[0]
     });
   } catch (err) {
-    console.error('Database error:', err);
-    res.status(500).json({ error: 'Database error' });
+    console.error('Database error updating equipment:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
   }
 };
 
@@ -101,71 +108,50 @@ exports.deleteEquipment = async (req, res) => {
   const client = await db.connect();
 
   try {
+    console.log(`Deleting equipment ID: ${id}`);
+
     // Start transaction
     await client.query('BEGIN');
 
-    console.log(`Deleting equipment ID: ${id}`);
+    // Delete related production_logs
+    await client.query('DELETE FROM production_logs WHERE equipment_id = $1', [id]);
+    console.log('Deleted production logs');
 
-    // Step 1: Delete all related production_logs
-    const delProduction = await client.query(
-      'DELETE FROM production_logs WHERE equipment_id = $1',
-      [id]
-    );
-    console.log(`Deleted ${delProduction.rowCount} production log(s)`);
+    // Delete related maintenance_tasks
+    await client.query('DELETE FROM maintenance_tasks WHERE equipment_id = $1', [id]);
+    console.log('Deleted maintenance tasks');
 
-    // Step 2: Delete all related maintenance_tasks
-    const delTasks = await client.query(
-      'DELETE FROM maintenance_tasks WHERE equipment_id = $1',
-      [id]
-    );
-    console.log(`Deleted ${delTasks.rowCount} maintenance task(s)`);
+    // Delete related maintenance_schedules
+    await client.query('DELETE FROM maintenance_schedules WHERE equipment_id = $1', [id]);
+    console.log('Deleted maintenance schedules');
 
-    // Step 3: Delete all related maintenance_schedules
-    const delSchedules = await client.query(
-      'DELETE FROM maintenance_schedules WHERE equipment_id = $1',
-      [id]
-    );
-    console.log(`Deleted ${delSchedules.rowCount} maintenance schedule(s)`);
-
-    // Step 4: Finally delete the equipment
-    const delEquipment = await client.query(
+    // Finally, delete the equipment
+    const result = await client.query(
       'DELETE FROM equipment WHERE id = $1 RETURNING *',
       [id]
     );
 
-    // Check if equipment was found
-    if (delEquipment.rowCount === 0) {
+    if (result.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Equipment not found' });
     }
 
-    // Commit all changes
+    // Commit transaction
     await client.query('COMMIT');
 
     console.log(`Successfully deleted equipment ID: ${id}`);
 
     res.status(200).json({ 
       message: 'Equipment deleted successfully',
-      deletedEquipment: delEquipment.rows[0]
+      equipment: result.rows[0]
     });
-
   } catch (err) {
-    // Rollback on any error
+    // Rollback on error
     await client.query('ROLLBACK').catch(e => console.error('Rollback error:', e));
     
     console.error('Error deleting equipment:', err);
-    
-    // Check for specific error types
-    if (err.code === '23503') {
-      return res.status(409).json({ 
-        error: 'Cannot delete equipment with associated records',
-        details: 'Please delete related tasks and schedules first'
-      });
-    }
-    
     res.status(500).json({ error: 'Failed to delete equipment', details: err.message });
   } finally {
-    // Always release the client back to the pool
     client.release();
   }
 };
